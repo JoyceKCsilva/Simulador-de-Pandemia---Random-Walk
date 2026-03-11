@@ -1,7 +1,7 @@
 import streamlit as st
-import plotly.graph_objects as go
 import pandas as pd
 import time
+from PIL import Image
 from randomWalk import RandomWalkModel, State
 
 st.set_page_config(page_title="Simulador de Pandemia", layout="wide")
@@ -63,17 +63,31 @@ def get_population_grid_data(model):
     # Mapeia estados para valores numéricos: Healthy=0, Sick=1, Dead=2, Immune=3
     return [[individual.state.value for individual in row] for row in model.population]
 
-# Cores personalizadas: 0:Verde, 1:Amarelo, 2:Vermelho, 3:Azul
-colorscale = [
-    [0.0, 'green'],   # 0
-    [0.25, 'green'],
-    [0.25, 'yellow'], # 1
-    [0.5, 'yellow'],
-    [0.5, 'red'],     # 2
-    [0.75, 'red'],
-    [0.75, 'blue'],   # 3
-    [1.0, 'blue']
-]
+def get_grid_render_size(grid_size, max_pixels=560):
+    """Calcula um tamanho de célula inteiro para manter o grid nítido."""
+    cell_size = max(1, min(8, max_pixels // grid_size))
+    return cell_size, grid_size * cell_size
+
+
+def get_population_image(model, cell_size):
+    """Gera uma imagem estável do grid sem remount visual do componente."""
+    state_colors = {
+        State.healthy.value: (34, 139, 34),
+        State.sick.value: (255, 215, 0),
+        State.dead.value: (220, 20, 60),
+        State.immune.value: (30, 144, 255),
+    }
+
+    grid_size = len(model.population)
+    image = Image.new("RGB", (grid_size, grid_size))
+    pixels = []
+
+    for row in model.population:
+        for individual in row:
+            pixels.append(state_colors[individual.state.value])
+
+    image.putdata(pixels)
+    return image.resize((grid_size * cell_size, grid_size * cell_size), Image.Resampling.NEAREST)
 
 if run_button:
     simulation_container = st.container()
@@ -81,15 +95,15 @@ if run_button:
     
     with simulation_container:
         st.subheader("Simulação em Tempo Real")
-        grid_placeholder = st.empty()
+        _, grid_column, _ = st.columns([1, 2, 1])
+        with grid_column:
+            grid_placeholder = st.empty()
         status_text = st.empty()
     
     deaths_list = []
     last_run_history = []
     start_time = time.time()
-    
-    # Variável para armazenar a figura do Plotly e ser reutilizada
-    fig = None
+    cell_size, render_size = get_grid_render_size(int(gridSize))
 
     for run in range(numberOfRuns):
         # Visualizamos a primeira execução OU todas se a opção estiver marcada
@@ -110,31 +124,11 @@ if run_button:
         history = []
         history.append(model.report())
         
-        # Configuração inicial do gráfico na primeira execução (ou na primeira visualizada)
-        if fig is None: # Cria a figura apenas uma vez
-            # Inicializa a visualização do grid
-            data = get_population_grid_data(model)
-            fig = go.Figure(data=go.Heatmap(
-                z=data, 
-                zmin=0, 
-                zmax=3, 
-                colorscale=colorscale, 
-                showscale=False
-            ))
-            fig.update_layout(
-                width=500, 
-                height=500, 
-                autosize=False,
-                margin=dict(l=0, r=0, t=0, b=0),
-                xaxis=dict(visible=False),
-                yaxis=dict(visible=False, autorange="reversed") # Y invertido para corresponder à matriz
+        if is_visualizing:
+            grid_placeholder.image(
+                get_population_image(model, cell_size),
+                width=render_size,
             )
-            grid_placeholder.plotly_chart(fig, use_container_width=True, key=f"grid_{run}_start")
-        elif is_visualizing: 
-            # Se já existe figura mas vamos animar o início de uma nova run
-             data = get_population_grid_data(model)
-             fig.data[0].z = data
-             grid_placeholder.plotly_chart(fig, use_container_width=True, key=f"grid_{run}_start")
 
         # Run generations
         for gen in range(numberOfGenerations):
@@ -142,23 +136,21 @@ if run_button:
             history.append(model.report())
             
             if is_visualizing:
-                data = get_population_grid_data(model)
-                
-                # Atualiza o gráfico existente
-                fig.data[0].z = data
-                
-                # Usamos unique key para cada frame para evitar StreamlitDuplicateElementKey
-                grid_placeholder.plotly_chart(fig, use_container_width=True, key=f"grid_anim_{run}_{gen}")
+                grid_placeholder.image(
+                    get_population_image(model, cell_size),
+                    width=render_size,
+                )
                 
                 # Pausa para o usuário ver a mudança
                 time.sleep(simulation_speed)
         
         # Se NÃO foi visualizado passo a passo, atualizamos o grid com o estado FINAL da simulação
         # para dar feedback de progresso ao usuário
-        if not is_visualizing and fig is not None:
-             data = get_population_grid_data(model)
-             fig.data[0].z = data
-             grid_placeholder.plotly_chart(fig, use_container_width=True, key=f"grid_end_run_{run}")
+        if not is_visualizing:
+            grid_placeholder.image(
+                get_population_image(model, cell_size),
+                width=render_size,
+            )
                 
         # Store results
         deaths = model.numberOfDeaths()
