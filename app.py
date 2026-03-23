@@ -55,6 +55,41 @@ with st.sidebar:
     )
     
     st.markdown("---")
+    st.subheader("🛡️ Medidas de Intervenção")
+
+    # Vacinação
+    with st.expander("💉 Vacinação"):
+        vaccination_enabled = st.checkbox("Habilitar Vacinação")
+        vaccination_percent = st.slider(
+            "Porcentagem da População a Vacinar", 
+            min_value=0, max_value=100, value=0, step=5,
+            help="Porcentagem de indivíduos SAUDÁVEIS que serão vacinados."
+        ) / 100.0
+        vaccination_start = st.number_input("Semana de Início da Vacinação", min_value=1, max_value=1000, value=1)
+
+    # Máscaras
+    with st.expander("😷 Uso de Máscaras"):
+        masks_enabled = st.checkbox("Habilitar Uso de Máscaras")
+        masks_adherence = st.slider(
+            "Adesão ao Uso de Máscaras (%)", 
+            min_value=0, max_value=100, value=0, step=5,
+            help="Reduz a chance de contágio."
+        ) / 100.0
+        masks_start = st.number_input("Início do Uso de Máscaras (Semana)", min_value=1, max_value=1000, value=1)
+        masks_end = st.number_input("Fim do Uso de Máscaras (Semana)", min_value=1, max_value=1000, value=52)
+
+    # Lockdown / Distanciamento
+    with st.expander("🏠 Lockdown / Distanciamento"):
+        lockdown_enabled = st.checkbox("Habilitar Lockdown / Distanciamento")
+        lockdown_adherence = st.slider(
+            "Intensidade do Lockdown (%)", 
+            min_value=0, max_value=100, value=0, step=5,
+            help="Determina a chance de um indivíduo evitar contato (ficar em casa)."
+        ) / 100.0
+        lockdown_start = st.number_input("Início do Lockdown (Semana)", min_value=1, max_value=1000, value=1)
+        lockdown_end = st.number_input("Fim do Lockdown (Semana)", min_value=1, max_value=1000, value=52)
+    
+    st.markdown("---")
     
     run_button = st.button("🚀 Executar Simulação", type="primary")
 
@@ -132,10 +167,57 @@ if run_button:
 
         # Run generations
         for gen in range(numberOfGenerations):
+            # --- Logic for Interventions ---
+            
+            # Base parameters
+            current_contagion = 0.5
+            current_distance = 0.0
+            
+            # Apply Masks
+            if 'masks_enabled' in locals() and masks_enabled and masks_start <= (gen + 1) <= masks_end:
+                # Assume masks reduce contagion by adherence * effectiveness (e.g. 70%)
+                mask_effectiveness = 0.7 
+                reduction = masks_adherence * mask_effectiveness
+                current_contagion = current_contagion * (1 - reduction)
+                
+            # Apply Lockdown / Distancing
+            if 'lockdown_enabled' in locals() and lockdown_enabled and lockdown_start <= (gen + 1) <= lockdown_end:
+                 # Lockdown increases social distance effect directly
+                 current_distance = max(current_distance, lockdown_adherence)
+            
+            # Update Model Parameters
+            if hasattr(model, 'update_parameters'):
+                model.update_parameters(current_contagion, current_distance)
+
+            # Apply Vaccination (One-time event)
+            if 'vaccination_enabled' in locals() and vaccination_enabled and (gen + 1) == vaccination_start:
+                 if hasattr(model, 'apply_vaccination'):
+                     model.apply_vaccination(vaccination_percent)
+                     # Force history update to reflect vaccination immediately? 
+                     # Actually nextGeneration() hasn't run yet, so the state change will be visible in the next step.
+                     # But we should probably record the state change if we visualize this step?
+                     # The loop draws *after* nextGeneration. So if we vaccinate now, 
+                     # nextGeneration will simulate interactions with immune people. Correct.
+
             model.nextGeneration()
             history.append(model.report())
             
             if is_visualizing:
+                status_msg = f"Execução {run + 1}/{numberOfRuns} | Semana {gen + 1}/{numberOfGenerations}"
+                
+                active_interventions = []
+                if 'lockdown_enabled' in locals() and lockdown_enabled and lockdown_start <= (gen + 1) <= lockdown_end:
+                    active_interventions.append("🏠 Lockdown")
+                if 'masks_enabled' in locals() and masks_enabled and masks_start <= (gen + 1) <= masks_end:
+                    active_interventions.append("😷 Máscaras")
+                if 'vaccination_enabled' in locals() and vaccination_enabled and gen + 1 == vaccination_start:
+                     active_interventions.append("💉 Campanha de Vacinação")
+                
+                if active_interventions:
+                    status_msg += " | Ativo: " + ", ".join(active_interventions)
+                
+                status_text.text(status_msg)
+                
                 grid_placeholder.image(
                     get_population_image(model, cell_size),
                     width=render_size,

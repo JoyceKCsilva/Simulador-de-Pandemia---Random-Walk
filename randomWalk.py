@@ -69,6 +69,25 @@ class RandomWalkModel:
         self.nextPopulation[startIndex][startIndex].state = State.sick
         #print("first case", startIndex, startIndex)
 
+    def update_parameters(self, contagion_factor, social_distance):
+        """Updates simulation parameters dynamically."""
+        self.contagionFactor = contagion_factor
+        self.socialDistanceEffect = social_distance
+
+    def apply_vaccination(self, percentage):
+        """
+        Vaccinates a percentage of the healthy population.
+        Args:
+            percentage (float): 0.0 to 1.0 representing fraction of healthy people to vaccinate.
+        """
+        for i in range(len(self.population)):
+            for j in range(len(self.population[i])):
+                if self.population[i][j].state == State.healthy:
+                    if random.random() < percentage:
+                        self.population[i][j].state = State.immune
+                        # Ensure nextPopulation is also updated to avoid sync issues
+                        self.nextPopulation[i][j].state = State.immune
+
     """
     Determines the next state of an individual based on transition probabilities 
     and processes interactions if the individual is sick.
